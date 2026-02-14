@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport"
         content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <title>Nadav Animal Sounds</title>
+  <title>Nadav's Soundboard</title>
   <style>
     :root {
       --edge-zone: 10vw;         /* left/right edge long-press trigger width */
@@ -71,6 +71,10 @@
       background: #141420;
       border: 1px solid rgba(255,255,255,0.08);
       transform: translateZ(0);
+    }
+
+    .tile img {
+      -webkit-user-drag: none;
     }
 
     .tile:active,
@@ -306,11 +310,10 @@
         tile.style.background = bgColor;
 
         tile.innerHTML = `
-          <img src="${a.imageSrc}" alt="${a.label}" aria-hidden="true" style="max-width: 180px; max-height: 180px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+          <img src="${a.imageSrc}" alt="${a.label}" draggable="false" aria-hidden="true" style="max-width: 180px; max-height: 180px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
           <div aria-hidden="true" style="display: none;">${a.emoji}</div>
           <div class="label">
             <span>${a.label}</span>
-            <span style="opacity:.7">tap/slide</span>
           </div>
         `;
         grid.appendChild(tile);

@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Nadav Animal Sounds</title>
+  <style>
+    :root {
+      --edge-zone: 10vw;         /* left/right edge long-press trigger width */
+      --press-ms: 1600;          /* long press duration */
+      --gap: 14px;
+      --radius: 22px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial;
+    }
+
+    /* Hard kill scrolling/selection */
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #0b0b0f;
+      font-family: var(--font);
+      overscroll-behavior: none;
+      touch-action: none;        /* prevents scroll/pinch in most cases */
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    /* iPhone safe areas */
+    body {
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    /* Layout */
+    #app {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Optional tiny status (hidden by default; useful while tuning) */
+    #status {
+      display: none;
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+      padding: 8px 12px 0;
+    }
+
+    #grid {
+      flex: 1;
+      display: grid;
+      gap: var(--gap);
+      padding: 14px;
+      grid-template-columns: 1fr; /* 1x1 by default (1 tile per page) */
+      grid-auto-rows: 1fr;
+    }
+
+    .tile {
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      color: white;
+      font-size: clamp(42px, 8vw, 74px);
+      font-weight: 800;
+      background: #141420;
+      border: 1px solid rgba(255,255,255,0.08);
+      transform: translateZ(0);
+    }
+
+    .tile:active,
+    .tile.is-playing {
+      outline: 4px solid rgba(255,255,255,0.18);
+      filter: brightness(1.12);
+    }
+
+    .label {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      opacity: 0.85;
+      letter-spacing: 0.2px;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .page-pill {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 12px;
+      opacity: 0.7;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.10);
+      pointer-events: none;
+    }
+
+    /* Invisible edge zones for long-press */
+    .edge {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      width: var(--edge-zone);
+      z-index: 9999;
+      background: transparent;
+    }
+    #edgeLeft { left: 0; }
+    #edgeRight { right: 0; }
+
+    /* Optional: show a subtle progress hint while long-pressing */
+    #edgeHint {
+      position: fixed;
+      bottom: calc(12px + env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10000;
+      font-size: 13px;
+      color: rgba(255,255,255,0.8);
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.10);
+      padding: 10px 14px;
+      border-radius: 999px;
+      display: none;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div id="status"></div>
+    <div id="grid"></div>
+  </div>
+
+  <!-- invisible long-press zones -->
+  <div id="edgeLeft" class="edge"></div>
+  <div id="edgeRight" class="edge"></div>
+  <div id="edgeHint"></div>
+
+  <script>
+    /*************************************************************
+     * CONFIG: animals & audio files
+     *************************************************************/
+    const ANIMALS = [
+        { key: "bird", label: "Bird",  soundSrc: "sounds/animals/bird.mp3", imageSrc: "image/animals/bird.svg"},
+        { key: "cat", label: "Cat",   soundSrc: "sounds/animals/cat.mp3", imageSrc: "image/animals/cat.svg"},
+        { key: "chicken", label: "Chicken", soundSrc: "sounds/animals/chicken.mp3", imageSrc: "image/animals/chicken.svg"},
+        { key: "cow", label: "Cow",   soundSrc: "sounds/animals/cow.mp3", imageSrc: "image/animals/cow.svg"},
+        { key: "dinosaur", label: "Dinosaur", soundSrc: "sounds/animals/dinosaur.mp3", imageSrc: "image/animals/dinosaur.svg"},
+        { key: "dog", label: "Dog",   soundSrc: "sounds/animals/dog.mp3", imageSrc: "image/animals/dog.svg"},
+        { key: "duck",  label: "Duck",  soundSrc: "sounds/animals/duck.mp3", imageSrc: "image/animals/duck.svg"},
+        { key: "eagle", label: "Eagle", soundSrc: "sounds/animals/eagle.mp3", imageSrc: "image/animals/eagle.svg"},
+        { key: "elephant", label: "Elephant", soundSrc: "sounds/animals/elephant.mp3", imageSrc: "image/animals/elephant.svg"},
+        { key: "horse", label: "Horse", soundSrc: "sounds/animals/horse.mp3", imageSrc: "image/animals/horse.svg"},
+        { key: "lion",  label: "Lion",  soundSrc: "sounds/animals/lion.mp3", imageSrc: "image/animals/lion.svg"},
+        { key: "monkey", label: "Monkey", soundSrc: "sounds/animals/monkey.mp3", imageSrc: "image/animals/monkey.svg"},
+        { key: "mouse", label: "Mouse", soundSrc: "sounds/animals/mouse.mp3", imageSrc: "image/animals/mouse.svg"},
+        { key: "owl", label: "Owl", soundSrc: "sounds/animals/owl.mp3", imageSrc: "image/animals/owl.svg"},
+        { key: "pig", label: "Pig", soundSrc: "sounds/animals/pig.mp3", imageSrc: "image/animals/pig.svg"},
+        { key: "rooster", label: "Rooster", soundSrc: "sounds/animals/rooster.mp3", imageSrc: "image/animals/rooster.svg"},
+        { key: "sheep", label: "Sheep", soundSrc: "sounds/animals/sheep.mp3", imageSrc: "image/animals/sheep.svg"},
+        { key: "snake", label: "Snake", soundSrc: "sounds/animals/snake.mp3", imageSrc: "image/animals/snake.svg"},
+        { key: "tiger", label: "Tiger", soundSrc: "sounds/animals/tiger.mp3", imageSrc: "image/animals/tiger.svg"},
+        { key: "wolf",  label: "Wolf",  soundSrc: "sounds/animals/wolf.mp3", imageSrc: "image/animals/wolf.svg"},
+    ];
+
+    const TILES_PER_PAGE = 1; // 1x1
+    const LONG_PRESS_MS = 1600;
+    const MOVE_CANCEL_PX = 12;
+
+    /*************************************************************
+     * Audio preload & play
+     *************************************************************/
+    const audioMap = new Map();
+    let audioUnlocked = false;
+
+    function preloadAll() {
+      for (const a of ANIMALS) {
+        const el = new Audio(a.soundSrc);
+        el.preload = "auto";
+        el.load();
+        audioMap.set(a.key, el);
+      }
+    }
+
+    async function unlockAudio() {
+      // iOS requires a user gesture before audio can play.
+      if (audioUnlocked) return;
+      try {
+        // play a silent-ish "prime": set volume 0 and play/pause quickly
+        const first = audioMap.get(ANIMALS[0].key);
+        if (!first) return;
+        const prevVol = first.volume;
+        first.volume = 0;
+        await first.play();
+        first.pause();
+        first.currentTime = 0;
+        first.volume = prevVol;
+        audioUnlocked = true;
+      } catch (e) {
+        // If it fails, we'll retry on next user gesture.
+      }
+    }
+
+    function playAnimal(key, tileEl) {
+      const el = audioMap.get(key);
+      if (!el) return;
+
+      // Restart sound immediately
+      try {
+        el.pause();
+        el.currentTime = 0;
+      } catch {}
+
+      // Visual feedback
+      if (tileEl) {
+        tileEl.classList.add("is-playing");
+        setTimeout(() => tileEl.classList.remove("is-playing"), 120);
+      }
+
+      el.play().catch(() => {
+        // If iOS blocks it, user needs to tap once more (unlockAudio).
+      });
+    }
+
+    /*************************************************************
+     * Paging + Rendering
+     *************************************************************/
+    let pageIndex = 0;
+
+    function pageCount() {
+      return Math.max(1, Math.ceil(ANIMALS.length / TILES_PER_PAGE));
+    }
+
+    function pageSlice(i) {
+      const start = i * TILES_PER_PAGE;
+      return ANIMALS.slice(start, start + TILES_PER_PAGE);
+    }
+
+    const grid = document.getElementById("grid");
+
+    function render() {
+      grid.innerHTML = "";
+      const animals = pageSlice(pageIndex);
+      const pill = document.createElement("div");
+      pill.className = "page-pill";
+      pill.textContent = `${pageIndex + 1}/${pageCount()}`;
+      grid.appendChild(pill);
+
+      animals.forEach(a => {
+        const tile = document.createElement("div");
+        tile.className = "tile";
+        tile.dataset.key = a.key;
+
+        tile.innerHTML = `
+          <img src="${a.imageSrc}" alt="${a.label}" aria-hidden="true" style="max-width: 180px; max-height: 180px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+          <div aria-hidden="true" style="display: none;">${a.emoji}</div>
+          <div class="label">
+            <span>${a.label}</span>
+            <span style="opacity:.7">tap/slide</span>
+          </div>
+        `;
+        grid.appendChild(tile);
+      });
+    }
+
+    function nextPage() {
+      pageIndex = (pageIndex + 1) % pageCount();
+      render();
+    }
+
+    function prevPage() {
+      pageIndex = (pageIndex - 1 + pageCount()) % pageCount();
+      render();
+    }
+
+    /*************************************************************
+     * Gesture handling:
+     * - Tap: play tile
+     * - Slide across tiles: play the tile you're currently over (throttled)
+     * - Long press edges: prev/next page
+     *************************************************************/
+    let activePointerId = null;
+    let lastPlayedKey = null;
+    let lastPlayAt = 0;
+
+    const PLAY_THROTTLE_MS = 120; // prevents rapid-fire while sliding
+
+    function tileFromPoint(x, y) {
+      const el = document.elementFromPoint(x, y);
+      if (!el) return null;
+      return el.closest?.(".tile") ?? null;
+    }
+
+    function maybePlayAtPoint(x, y) {
+      const tile = tileFromPoint(x, y);
+      if (!tile) return;
+
+      const key = tile.dataset.key;
+      const now = Date.now();
+
+      if (key && (key !== lastPlayedKey || (now - lastPlayAt) > PLAY_THROTTLE_MS)) {
+        lastPlayedKey = key;
+        lastPlayAt = now;
+        playAnimal(key, tile);
+      }
+    }
+
+    // Use pointer events for simpler cross-device behavior
+    document.addEventListener("pointerdown", async (e) => {
+      // Only track first pointer (kid chaos safe)
+      if (activePointerId !== null) return;
+      activePointerId = e.pointerId;
+
+      await unlockAudio();
+
+      // Tap triggers sound immediately
+      maybePlayAtPoint(e.clientX, e.clientY);
+
+      e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== activePointerId) return;
+      maybePlayAtPoint(e.clientX, e.clientY);
+      e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener("pointerup", (e) => {
+      if (e.pointerId !== activePointerId) return;
+      activePointerId = null;
+      lastPlayedKey = null;
+      e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener("pointercancel", (e) => {
+      if (e.pointerId !== activePointerId) return;
+      activePointerId = null;
+      lastPlayedKey = null;
+    });
+
+    // Disable double-tap zoom on iOS
+    let lastTouchEnd = 0;
+    document.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      if (now - lastTouchEnd <= 300) e.preventDefault();
+      lastTouchEnd = now;
+    }, { passive: false });
+
+    /*************************************************************
+     * Edge long press: previous/next page
+     *************************************************************/
+    const edgeHint = document.getElementById("edgeHint");
+
+    function setupEdgeLongPress(edgeEl, onTrigger, label) {
+      let timer = null;
+      let startX = 0;
+      let startY = 0;
+      let pointerId = null;
+
+      function clear() {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        pointerId = null;
+        edgeHint.style.display = "none";
+      }
+
+      edgeEl.addEventListener("pointerdown", (e) => {
+        // ignore if already tracking a main pointer; edges should still work, but keep simple:
+        // only allow when no active pointer (reduces accidental overlap while sliding)
+        if (activePointerId !== null) return;
+
+        pointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+
+        edgeHint.textContent = label;
+        edgeHint.style.display = "block";
+
+        timer = setTimeout(() => {
+          clear();
+          onTrigger();
+          // Optional vibration feedback (works on some devices)
+          if (navigator.vibrate) navigator.vibrate(30);
+        }, LONG_PRESS_MS);
+
+        e.preventDefault();
+      }, { passive: false });
+
+      edgeEl.addEventListener("pointermove", (e) => {
+        if (e.pointerId !== pointerId) return;
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+        if (dx > MOVE_CANCEL_PX || dy > MOVE_CANCEL_PX) clear();
+        e.preventDefault();
+      }, { passive: false });
+
+      edgeEl.addEventListener("pointerup", (e) => {
+        if (e.pointerId !== pointerId) return;
+        clear();
+        e.preventDefault();
+      }, { passive: false });
+
+      edgeEl.addEventListener("pointercancel", clear);
+      edgeEl.addEventListener("pointerleave", clear);
+    }
+
+    setupEdgeLongPress(document.getElementById("edgeLeft"), prevPage, "◀︎ hold… previous");
+    setupEdgeLongPress(document.getElementById("edgeRight"), nextPage, "hold… next ▶︎");
+
+    /*************************************************************
+     * Boot
+     *************************************************************/
+    preloadAll();
+    render();
+  </script>
+</body>
+</html>

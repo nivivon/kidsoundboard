@@ -332,15 +332,22 @@
 
     /*************************************************************
      * Gesture handling:
-     * - Tap: play tile
-     * - Slide across tiles: play the tile you're currently over (throttled)
+     * - Tap: play sound once
+     * - Long press: loop sound continuously until release
+     * - Slide: treated as tap (play once, no continuous playback)
      * - Long press edges: prev/next page
      *************************************************************/
     let activePointerId = null;
-    let lastPlayedKey = null;
-    let lastPlayAt = 0;
+    let activeTile = null;
+    let activeKey = null;
+    let longPressTimer = null;
+    let loopInterval = null;
+    let startX = 0;
+    let startY = 0;
 
-    const PLAY_THROTTLE_MS = 120; // prevents rapid-fire while sliding
+    const LONG_PRESS_TILE_MS = 500; // Long press duration before looping starts
+    const LOOP_INTERVAL_MS = 100; // Fallback interval if duration not available
+    const MOVE_THRESHOLD_PX = 15; // Movement threshold to cancel long press
 
     function tileFromPoint(x, y) {
       const el = document.elementFromPoint(x, y);
@@ -348,51 +355,99 @@
       return el.closest?.(".tile") ?? null;
     }
 
-    function maybePlayAtPoint(x, y) {
-      const tile = tileFromPoint(x, y);
-      if (!tile) return;
-
-      const key = tile.dataset.key;
-      const now = Date.now();
-
-      if (key && (key !== lastPlayedKey || (now - lastPlayAt) > PLAY_THROTTLE_MS)) {
-        lastPlayedKey = key;
-        lastPlayAt = now;
-        playAnimal(key, tile);
+    function clearActiveGesture() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
       }
+      if (loopInterval) {
+        clearTimeout(loopInterval); // Changed from clearInterval since we're using setTimeout
+        loopInterval = null;
+      }
+      activePointerId = null;
+      activeTile = null;
+      activeKey = null;
     }
 
     // Use pointer events for simpler cross-device behavior
     document.addEventListener("pointerdown", async (e) => {
       // Only track first pointer (kid chaos safe)
       if (activePointerId !== null) return;
+      
+      // Ignore edge zones (they handle their own gestures)
+      if (e.target.closest?.(".edge")) return;
+
       activePointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
 
       await unlockAudio();
 
-      // Tap triggers sound immediately
-      maybePlayAtPoint(e.clientX, e.clientY);
+      // Find the tile at the start point
+      const tile = tileFromPoint(e.clientX, e.clientY);
+      if (!tile) {
+        clearActiveGesture();
+        return;
+      }
+
+      activeTile = tile;
+      activeKey = tile.dataset.key;
+
+      // Play sound immediately on tap/down
+      if (activeKey) {
+        playAnimal(activeKey, tile);
+      }
+
+      // Set up long press timer to start looping the sound
+      longPressTimer = setTimeout(() => {
+        if (activeKey && activeTile) {
+          // Get the audio element to determine its duration
+          const audioEl = audioMap.get(activeKey);
+          let loopDelay = LOOP_INTERVAL_MS;
+          
+          if (audioEl && !isNaN(audioEl.duration) && isFinite(audioEl.duration)) {
+            // Use the actual sound duration (convert to ms, add small buffer)
+            loopDelay = (audioEl.duration * 1000) + 50; // 50ms buffer for smooth looping
+          }
+          
+          // Start looping the sound based on its duration
+          function scheduleNextLoop() {
+            if (activeKey && activeTile) {
+              playAnimal(activeKey, activeTile);
+              // Schedule next loop based on duration
+              const audioEl = audioMap.get(activeKey);
+              let nextDelay = LOOP_INTERVAL_MS;
+              if (audioEl && !isNaN(audioEl.duration) && isFinite(audioEl.duration)) {
+                nextDelay = (audioEl.duration * 1000) + 50;
+              }
+              loopInterval = setTimeout(scheduleNextLoop, nextDelay);
+            }
+          }
+          
+          scheduleNextLoop();
+        }
+      }, LONG_PRESS_TILE_MS);
 
       e.preventDefault();
     }, { passive: false });
 
     document.addEventListener("pointermove", (e) => {
       if (e.pointerId !== activePointerId) return;
-      maybePlayAtPoint(e.clientX, e.clientY);
+      
+      // Ignore sliding - don't cancel long press or loop
+      // Just prevent default to avoid any browser gestures
       e.preventDefault();
     }, { passive: false });
 
     document.addEventListener("pointerup", (e) => {
       if (e.pointerId !== activePointerId) return;
-      activePointerId = null;
-      lastPlayedKey = null;
+      clearActiveGesture();
       e.preventDefault();
     }, { passive: false });
 
     document.addEventListener("pointercancel", (e) => {
       if (e.pointerId !== activePointerId) return;
-      activePointerId = null;
-      lastPlayedKey = null;
+      clearActiveGesture();
     });
 
     // Disable double-tap zoom on iOS
